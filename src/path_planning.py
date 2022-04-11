@@ -63,12 +63,17 @@ class PathPlan(object):
                                     self.map_graph[(u, v)].add((u+j, v+i))
             print("INITIALIZED MAP GRAPH")
 
+            # Debug Code
+            print("real:", (0.0, 0.0, 0.0))
+            print("px:", self.real_to_pixel((0.0, 0.0, 0.0), self.map_msg))
+            print("real:", self.pixel_to_real(self.real_to_pixel((0.0, 0.0, 0.0), self.map_msg), self.map_msg))
+
             self.plan_path(self.start_point, self.end_point, self.map)
 
 
     def odom_cb(self, msg):
-        # Initialize starting position
-        if not self.start_point:
+        if self.start_point == None:
+            # Initialize starting position
             x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
             quat = [msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w]
             theta = tf.transformations.euler_from_quaternion(quat)[2]
@@ -90,23 +95,43 @@ class PathPlan(object):
 
     # Helper function: convert pixel to real coordinates
     def pixel_to_real(self, px, map):
-        u, v = px
-        u, v = u*map.info.resolution, v*map.info.resolution
-        raw_pose = np.array([[np.sin(0.0), np.cos(0.0), 0.0, u]])
-        raise NotImplementedError
+        # u, v, theta = px[0], px[1], 0.0
+        # u, v = u*map.info.resolution, v*map.info.resolution
+        # pixel_pose = np.array([[np.cos(theta), -np.sin(theta), 0.0, u], [np.sin(theta), np.cos(theta), 0.0, v], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
+        # quat = [map.info.origin.orientation.x, map.info.origin.orientation.y, map.info.origin.orientation.z, map.info.origin.orientation.w]
+        # theta_t = tf.transformations.euler_from_quaternion(quat)[2]
+        # x_t, y_t, z_t = map.info.origin.position.x,map.info.origin.position.y, map.info.origin.position.z 
+        # transform = np.array([[np.cos(theta_t), -np.sin(theta_t), 0.0, x_t], [np.sin(theta_t), np.cos(theta_t), 0.0, y_t], [0.0, 0.0, 1.0, z_t], [0.0, 0.0, 0.0, 1.0]])
+        # real_pose = np.matmul(pixel_pose, transform)
+
+        pixel_pose = np.array([px[0]*map.info.resolution, px[1]*map.info.resolution, 0.0])
+        quat = [map.info.origin.orientation.x, map.info.origin.orientation.y, map.info.origin.orientation.z, map.info.origin.orientation.w]
+        map_theta = tf.transformations.euler_from_quaternion(quat)[2]
+        map_rotation = np.array([[np.cos(map_theta), -np.sin(map_theta), 0.0], [np.sin(map_theta), np.cos(map_theta), 0.0], [0.0, 0.0, 1.0]])
+        translation = np.array([map.info.origin.position.x, map.info.origin.position.y, 0.0])
+        real_pose = np.matmul(pixel_pose, map_rotation) + translation
+
+        return (real_pose[0], real_pose[1])
 
 
     # Helper function: convert real to pixel coordinates
     def real_to_pixel(self, real, map):
-        x, y, theta = real[0], real[1], 0.0
-        real_pose = np.array([[np.cos(theta), -np.sin(theta), 0.0, x], [np.sin(theta), np.cos(theta), 0.0, y], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
-        quat = [map.info.origin.orientation.x, map.info.origin.orientation.y, map.info.origin.orientation.z, map.info.origin.orientation.w]
-        theta_t = tf.transformations.euler_from_quaternion(quat)[2]
-        x_t, y_t, z_t = map.info.origin.position.x,map.info.origin.position.y, map.info.origin.position.z 
-        transform = np.array([[np.cos(theta_t), -np.sin(theta_t), 0.0, x_t], [np.sin(theta_t), np.cos(theta_t), 0.0, y_t], [0.0, 0.0, 1.0, z_t], [0.0, 0.0, 0.0, 1.0]])
-        pixel_pose = np.matmul(real_pose, np.linalg.inv(transform))
+        # x, y, theta = real[0], real[1], 0.0
+        # real_pose = np.array([[np.cos(theta), -np.sin(theta), 0.0, x], [np.sin(theta), np.cos(theta), 0.0, y], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
+        # quat = [map.info.origin.orientation.x, map.info.origin.orientation.y, map.info.origin.orientation.z, map.info.origin.orientation.w]
+        # theta_t = tf.transformations.euler_from_quaternion(quat)[2]
+        # x_t, y_t, z_t = map.info.origin.position.x,map.info.origin.position.y, map.info.origin.position.z 
+        # transform = np.array([[np.cos(theta_t), -np.sin(theta_t), 0.0, x_t], [np.sin(theta_t), np.cos(theta_t), 0.0, y_t], [0.0, 0.0, 1.0, z_t], [0.0, 0.0, 0.0, 1.0]])
+        # pixel_pose = np.matmul(real_pose, np.linalg.inv(transform))
 
-        return (np.round(pixel_pose[0, 3]/map.info.resolution).astype(int), np.round(pixel_pose[1, 3]/map.info.resolution).astype(int))
+        real_pose = np.array([real[0], real[1], 0.0])
+        quat = [map.info.origin.orientation.x, map.info.origin.orientation.y, map.info.origin.orientation.z, map.info.origin.orientation.w]
+        map_theta = tf.transformations.euler_from_quaternion(quat)[2]
+        map_rotation = np.array([[np.cos(map_theta), -np.sin(map_theta), 0.0], [np.sin(map_theta), np.cos(map_theta), 0.0], [0.0, 0.0, 1.0]])
+        translation = np.array([map.info.origin.position.x, map.info.origin.position.y, 0.0])
+        pixel_pose = np.matmul(real_pose-translation, np.linalg.inv(map_rotation))
+
+        return (np.round(pixel_pose[0]/map.info.resolution).astype(int), np.round(pixel_pose[1]/map.info.resolution).astype(int))
 
 
     def plan_path(self, start_point, end_point, map):
@@ -121,9 +146,9 @@ class PathPlan(object):
             visited = set()
             parents = {}
             end_found = False
-            for tup in set(self.map_graph.keys()):
-                if abs(tup[0] - end_coordinate[0]) < 10 and abs(tup[1] - end_coordinate[1]) < 10:
-                    print(tup)
+            # for tup in set(self.map_graph.keys()):
+            #     if abs(tup[0] - end_coordinate[0]) < 10 and abs(tup[1] - end_coordinate[1]) < 10:
+            #         print(tup)
             while (not end_found) and len(queue) > 0:
                 curr = queue.pop(0)
                 visited.add(curr)
@@ -144,11 +169,14 @@ class PathPlan(object):
                 curr = parents[curr]
                 path.append(curr)
             path.reverse()
-            print("PATH:", path)
+            
+
+            # Convert to real-world frame
+            real_path = [self.pixel_to_real(px, self.map_msg) for px in path]
 
             # Convert to trajectory
             self.trajectory.clear()
-            for p in path:
+            for p in real_path:
                 point = Point(p[0], p[1], 0)
                 self.trajectory.addPoint(point)
 
