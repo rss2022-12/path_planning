@@ -36,7 +36,9 @@ class PathPlan(object):
         self.map_msg = None
         self.map = None
         self.map_graph = None
+        self.last_start_point = None
         self.start_point = None
+        self.last_end_point = None
         self.end_point = None
 
 
@@ -52,7 +54,6 @@ class PathPlan(object):
             self.map[self.map == 100] = 1 # Convert to binary for skimage
             self.map = skimage.morphology.dilation(self.map, skimage.morphology.disk(10))
             self.map[self.map == 1] = 100
-            self.map_acquired = True
             # map_image = plt.imshow(self.map)
             # plt.show()
             print("INITIALIZED MAP")
@@ -70,26 +71,37 @@ class PathPlan(object):
             print("INITIALIZED MAP GRAPH")
 
             # Debug Code
-            print("real:", (0.0, 0.0, 0.0))
+            print("real:", (0.0, 0.0, 1.0))
             print("px:", self.real_to_pixel((0.0, 0.0, 0.0), self.map_msg))
             print("real:", self.pixel_to_real(self.real_to_pixel((0.0, 0.0, 0.0), self.map_msg), self.map_msg))
+
+            # Set map flag
+            self.map_acquired = True
 
             self.plan_path(self.start_point, self.end_point, self.map)
 
 
     def odom_cb(self, msg):
-        if self.start_point == None:
-            # Initialize starting position
-            x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
-            quat = [msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w]
-            theta = tf.transformations.euler_from_quaternion(quat)[2]
-            self.start_point = (x, y, theta)
-            print("START POINT INITIALIZED")
+        # Initialize starting position
+        x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
+        quat = [msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w]
+        theta = tf.transformations.euler_from_quaternion(quat)[2]
+        self.start_point = (x, y, theta)
+        # print("START POINT INITIALIZED")
 
-            if self.algorithm=="RRT":
-                self.rrt_algorithm(self.start_point,self.end_point)
-            else:
-                self.plan_path(self.start_point, self.end_point, self.map)
+        if self.start_point != self.last_start_point:
+            print(self.start_point)
+            self.plan_path(self.start_point, self.end_point, self.map)
+        
+        self.last_start_point = self.start_point
+        
+        if self.algorithm=="RRT":
+            self.rrt_algorithm(self.start_point,self.end_point)
+        else:
+            self.plan_path(self.start_point, self.end_point, self.map)
+
+        
+
 
 
     def goal_cb(self, msg):
@@ -100,7 +112,10 @@ class PathPlan(object):
         self.end_point = (x, y, theta)
         print("END POINT INITIALIZED")
 
-        self.plan_path(self.start_point, self.end_point, self.map)
+        if self.last_end_point != self.end_point:
+            self.plan_path(self.start_point, self.end_point, self.map)
+        
+        self.last_end_point = self.end_point
 
     # Helper function: convert pixel to real coordinates
     def pixel_to_real(self, px, map):
