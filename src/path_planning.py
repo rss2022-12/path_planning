@@ -25,6 +25,12 @@ class PathPlan(object):
         self.traj_pub = rospy.Publisher("/trajectory/current", PoseArray, queue_size=10)
         self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.odom_cb)
 
+
+        #flags and things
+        
+        self.maxrange=15
+        self.algorithm="BFS" #or BFS
+
         # Instance variables
         self.map_acquired = False
         self.map_msg = None
@@ -80,7 +86,10 @@ class PathPlan(object):
             self.start_point = (x, y, theta)
             print("START POINT INITIALIZED")
 
-            self.plan_path(self.start_point, self.end_point, self.map)
+            if self.algorithm=="RRT":
+                self.rrt_algorithm(self.start_point,self.end_point)
+            else:
+                self.plan_path(self.start_point, self.end_point, self.map)
 
 
     def goal_cb(self, msg):
@@ -185,7 +194,110 @@ class PathPlan(object):
 
             # visualize trajectory Markers
             self.trajectory.publish_viz()
+            
+    def rrt_algorithm(self, start_point, end_point):
+         if start_point != None and end_point != None and self.map_acquired :
+            # Create path
 
+         #change to coordinates
+            start_point = self.real_to_pixel(start_point, self.map_msg)
+            end_point = self.real_to_pixel(end_point, self.map_msg)
+      
+            leaf2parent={start_point:-1}
+            
+            while True:
+                random_point=np.random.randint(len(self.map_graph))
+                nearest=self.find_nearest(random_point,leaf2parent.keys())
+                new_leaf=self.steering(random_point,nearest)
+                
+                if self.check_obstacle(nearest,new_leaf):
+                    leaf2parent[new_leaf].append(nearest)
+                    err=new_leaf-end_point
+                    if np.dot(err,err) < self.maxrange:
+                        self.RRT_path(leaf2parent,new_leaf)
+                        break
+            
+                        
+        
+        
+    def find_nearest(self,random_point,leaf2parent):
+        error=np.sum((random_point-np.array(leaf2parent))**2) #square error
+        min_error_ind=np.argmin(error)[0]
+        
+        if error[min_error_ind] > self.threshold_error:
+            return error[min_error_ind]
+        else:
+            return -1
+        
+    def steering(self,random_point, nearest):
+        err = random_point - nearest
+        if np.dot(err,err) < self.max_distance**2:
+            return random_point
+        direction = err /( np.sqrt(np.dot(err,err)))  # normalization
+        new_point = np.round(nearest + 20*direction)
+        return new_point.astype(int)
+    
+    def check_obstacle(self,nearest,new_leaf):
+        
+        if nearest[0]<new_leaf[0]:
+            xmin=nearest[0]
+            xmax=new_leaf[0]
+        else:
+            xmin=new_leaf[0]
+            xmax=nearest[0]
+            
+        if nearest[1]<new_leaf[1]:
+            ymin=nearest[1]
+            ymax=new_leaf[1]
+        else:
+            ymin=new_leaf[1]
+            ymax=nearest[1]
+            
+        xmin = (np.round(xmin)).astype(int)
+        xmax = (np.round(xmax)).astype(int)+1
+        ymin = (np.round(ymin)).astype(int)
+        ymax = (np.round(ymax)).astype(int)+1
+        
+        rectanglex=np.arange(xmin,xmax)
+        rectangley=np.arange(ymin.ymax)
+        meshed=np.meshgrid(rectanglex,rectangley)
+        flattened=np.reshape(meshed,1)
+        
+        non_occupied=self.map_graph.keys()
+        
+        for i in flattened:
+            if not np.isin(i,non_occupied):
+                return False
+        
+        return True
+        
+    
+        def RRT_path(self,tree,final_leaf):
+            
+            path=[final_leaf]
+            
+            while final_leaf != -1:
+                leafend=tree[final_leaf]
+                path.append(leafend)
+                final_leaf=tree[leafend]
+            
+ 
+            path.reverse()
+          
+              # Convert to real-world frame
+            real_path = [self.pixel_to_real(px, self.map_msg) for px in path]
+
+            # Convert to trajectory
+            self.trajectory.clear()
+            for p in real_path:
+                point = Point(p[0], p[1], 0)
+                self.trajectory.addPoint(point)
+
+            # publish trajectory
+            self.traj_pub.publish(self.trajectory.toPoseArray())
+
+            # visualize trajectory Markers
+            self.trajectory.publish_viz()
 
 if __name__=="__main__":
     rospy.init_node("path_planning")
