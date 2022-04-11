@@ -70,7 +70,10 @@ class PathPlan(object):
         # Initialize starting position
         if not self.start_point:
             x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
-            quat = [msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w]
+            quat = [msg.pose.pose.orientation.x,
+                    msg.pose.pose.orientation.y, 
+                    msg.pose.pose.orientation.z, 
+                    msg.pose.pose.orientation.w]
             theta = tf.transformations.euler_from_quaternion(quat)[2]
             self.start_point = (x, y, theta)
             print("START POINT INITIALIZED")
@@ -81,7 +84,10 @@ class PathPlan(object):
     def goal_cb(self, msg):
         # Initialize ending position
         x, y = msg.pose.position.x, msg.pose.position.y
-        quat = [msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w]
+        quat = [msg.pose.orientation.x,
+                msg.pose.orientation.y, 
+                msg.pose.orientation.z, 
+                msg.pose.orientation.w]
         theta = tf.transformations.euler_from_quaternion(quat)[2]
         self.end_point = (x, y, theta)
         print("END POINT INITIALIZED")
@@ -166,7 +172,17 @@ class PathPlan(object):
             # visualize trajectory Markers
             self.trajectory.publish_viz()
 
-
+    def rrt_algorithm(self, start_point, end_point):
+        leaf=[]
+        parent_leaf=[]
+        leaf2parent={}
+        start_leaf=start_point
+        
+        
+        
+        return
+        
+        
 if __name__=="__main__":
     rospy.init_node("path_planning")
     pf = PathPlan()
