@@ -13,20 +13,22 @@ from visualization_msgs.msg import Marker
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry
 
+
 class PurePursuit(object):
     """ Implements Pure Pursuit trajectory tracking with a fixed lookahead and speed.
     """
+
     def __init__(self):
-        self.odom_topic       = rospy.get_param("~odom_topic")
-        self.speed            =  10
-        self.Klook             = 1.5  #constant that affects lookahead
-                                      #based on speed
-        self.lookahead        = self.Klook * self.speed
-        self.wheelbase_length = .17 # TODO: FILL IN
-        self.trajectory  = utils.LineTrajectory("/followed_trajectory")
+        self.odom_topic = rospy.get_param("~odom_topic")
+        self.speed = 10
+        self.Klook = 1.5  # constant that affects lookahead
+        # based on speed
+        self.lookahead = self.Klook * self.speed
+        self.wheelbase_length = .17  # TODO: FILL IN
+        self.trajectory = utils.LineTrajectory("/followed_trajectory")
         self.traj_sub = rospy.Subscriber("/trajectory/current", PoseArray, self.trajectory_callback, queue_size=1)
         self.drive_pub = rospy.Publisher("/drive", AckermannDriveStamped, queue_size=1)
-        self.odom_sub=rospy.Subscriber(self.odom_topic,Odometry,self.find_closest_point,queue_size=1)
+        self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.find_closest_point, queue_size=1)
 
     def trajectory_callback(self, msg):
         ''' Clears the currently followed trajectory, and loads the new one from the message
@@ -68,44 +70,57 @@ class PurePursuit(object):
         dist_sqrd = np.matmul(x_sec, np.transpose(x_sec)) + np.matmul(y_sec, np.transpose(y_sec))
 
         current_point_index = np.argmin(dist_sqrd)
+        closest_info = (points[current_point_index:], self.trajectory.distances[current_point_index:])
+        return self.get_lookahead_point(closest_info)
 
-    def get_lookahead_point(self, msg): #TODO NEED ANGELS SECTION TO KNOW CLOSEST TRAJECTORY SEGMENT
-        Q = self.p  # Centre of circle
-        r = self.r  # Radius of circle
-        # vector
-        P1 = constraint.point1  # Start of line segment
-        V = constraint.point2 - P1  # Vector along line segment
+    def get_lookahead_point(self, closest_info):  # TODO NEED ANGELS SECTION TO KNOW CLOSEST TRAJECTORY SEGMENT
+        current_pos = np.asarray((self.odom_sub.pose.pose.x, self.odom_sub.pose.pose.y))  # Centre of circle
+        lookahead_dist = self.lookahead  # Radius of circle
 
-        #compute coefficients
-        # a = np.dot(vec_v, vec_v)
-        # b = 2 * np.dot(vec_v, vec_w)
-        # c = np.dot(vec_w, vec_w) - self.lookahead ** 2
+        current_traj, current_dist = closest_info
+        if (abs(current_dist[0] - self.lookahead) < 1e-6):
+            return current_traj[0]
 
+        for i in range(len(current_traj)):
+            pt = current_traj[i][:]
+            squared_dist = np.dot(current_pos - pt, current_pos - pt)
+            if (squared_dist > self.lookahead ** 2):
+                break
 
-        a = V.dot(V)
-        b = 2 * V.dot(P1 - Q)
-        c = P1.dot(P1) + Q.dot(Q) - 2 * P1.dot(Q) - r ** 2
+        P1 = closest_info[0][i-1]  # last point inside circle
+        P2 = closest_info[0][i]
+        segment_start = closest_info[0][i-1][:]
+        segment_end = closest_info[0][i][:]
 
-        #find discriminant. if neg then line misses circle and no real soln
+        vector_traj = segment_end - segment_start  # vectors along line segment
+        vector_points = segment_start - current_pos  # vectors from robot to points
+
+        # compute coefficients
+
+        a = np.dot(vector_traj, vector_traj)
+        b = 2 * np.dot(vector_traj, vector_points)
+        c = np.dot(vector_points, vector_points) - lookahead_dist ** 2
+
+        # find discriminant. if neg then line misses circle and no real soln
         disc = b ** 2 - 4 * a * c
         if disc < 0:
-            return False, None
+            self.lookahead *= 2
+            return self.get_lookahead_point(closest_info)
 
-        #2 solns. if btw 0  and 1 the line doesnt hit the circle but would if extended
+        # 2 intersection solns. if btw 0  and 1 the line doesnt hit the circle but would if extended
         sqrt_disc = math.sqrt(disc)
         t1 = (-b + sqrt_disc) / (2 * a)
         t2 = (-b - sqrt_disc) / (2 * a)
         if not (0 <= t1 <= 1 or 0 <= t2 <= 1):
-            return False, None
+            self.lookahead *= 2
+            return self.get_lookahead_point(closest_info)
 
-        #get point on the line
+        # get point on the line
         t = max(0, min(1, - b / (2 * a)))
-        return True, P1 + t * V
+        return P1 + t * (P2-P1)
 
 
-
-
-if __name__=="__main__":
+if __name__ == "__main__":
     rospy.init_node("pure_pursuit")
     pf = PurePursuit()
     rospy.spin()
