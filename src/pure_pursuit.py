@@ -28,7 +28,7 @@ class PurePursuit(object):
         self.trajectory = utils.LineTrajectory("/followed_trajectory")
         self.traj_sub = rospy.Subscriber("/trajectory/current", PoseArray, self.trajectory_callback, queue_size=1)
         self.drive_pub = rospy.Publisher("/drive", AckermannDriveStamped, queue_size=1)
-        self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.find_closest_point, queue_size=1)
+        self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.Pursuiter, queue_size=1)
 
     def trajectory_callback(self, msg):
         ''' Clears the currently followed trajectory, and loads the new one from the message
@@ -38,10 +38,16 @@ class PurePursuit(object):
         self.trajectory.fromPoseArray(msg)
         self.trajectory.publish_viz(duration=0.0)
 
-    def find_closest_point(self, msg):
+    def find_closest_point(self, robot):
         """
         Finds "start point" for your robot from the trajectory at
-        the current time
+        the current time.
+
+        Input:
+        Current trajectory of robot
+        ----------------------------------
+        Output:
+        Tuple of (New trajectory starting at closest point, distances of segments)
         """
         # car_x=msg.pose.pose.x
         # car_y= msg.pose.pose.y
@@ -53,8 +59,8 @@ class PurePursuit(object):
 
         p = points2 - points1
 
-        car_x = np.full((points1.shape[0],), msg.pose.pose.x)
-        car_y = np.full((points1.shape[0],), msg.pose.pose.y)
+        car_x = np.full((points1.shape[0],), robot.pose.pose.x)
+        car_y = np.full((points1.shape[0],), robot.pose.pose.y)
 
         n = np.dot(p, np.transpose(p))
 
@@ -91,7 +97,7 @@ class PurePursuit(object):
         P2 = closest_info[0][i]
         segment_start = closest_info[0][i-1][:]
         segment_end = closest_info[0][i][:]
-
+1           
         vector_traj = segment_end - segment_start  # vectors along line segment
         vector_points = segment_start - current_pos  # vectors from robot to points
 
@@ -118,6 +124,45 @@ class PurePursuit(object):
         # get point on the line
         t = max(0, min(1, - b / (2 * a)))
         return P1 + t * (P2-P1)
+
+        
+    def Pursuiter(self,msg):
+        """
+
+        """
+        goal= self.find_closest_point(msg)
+
+        position= self.odom_topic.pose.pose.position
+        orientation=self.odom_topic.pose.pose.orientation
+        current_pos= np.asarray([position.x,position.y])
+
+        goal_vec= goal-current_pos
+
+        current_rot=tf.transformations.euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])[2]
+
+        rot_matrix= np.array([[np.cos(-current_rot),-np.sin(-current_rot)], [np.sin(-current_rot), np.cos(-current_rot)]])
+
+        rot_point= np.dot(rot_matrix, goal_vec.T)
+
+        L1 = np.linalg.norm(rot_point)
+        
+        alpha= np.arctan2(rot_point[1],rot_point[0])
+
+        steer_angle= np.arctan2((2*self.wheelbase_length * np.sin(alpha)),L1)
+
+        new_vel=3.06(-steer_angle+1.4)(steer_angle+1.4) # the 3.06 is the speed constant (assuming 6 m/s max speed), and the 1.4 is max turning angle (assuming 1.4)
+
+        ack=AckermannDriveStamped()
+        ack.drive.steering_angle=steer_angle
+        ack.drive.speed=new_vel
+
+        self.drive_pub.publish(ack)
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
