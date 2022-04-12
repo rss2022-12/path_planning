@@ -28,7 +28,7 @@ class PurePursuit(object):
         self.trajectory = utils.LineTrajectory("/followed_trajectory")
         self.traj_sub = rospy.Subscriber("/trajectory/current", PoseArray, self.trajectory_callback, queue_size=1)
         self.drive_pub = rospy.Publisher("/drive", AckermannDriveStamped, queue_size=1)
-        self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.Pursuiter, queue_size=1)
+        self.odom_sub = rospy.Subscriber("/pf/pose/odom", Odometry, self.Pursuiter, queue_size=1)
 
     def trajectory_callback(self, msg):
         ''' Clears the currently followed trajectory, and loads the new one from the message
@@ -59,8 +59,8 @@ class PurePursuit(object):
 
         p = points2 - points1
 
-        car_x = np.full((points1.shape[0],), robot.pose.pose.x)
-        car_y = np.full((points1.shape[0],), robot.pose.pose.y)
+        car_x = np.full((points1.shape[0],), robot.pose.pose.position.x)
+        car_y = np.full((points1.shape[0],), robot.pose.pose.position.y)
 
         n = np.dot(p, np.transpose(p))
 
@@ -97,7 +97,7 @@ class PurePursuit(object):
         P2 = closest_info[0][i]
         segment_start = closest_info[0][i-1][:]
         segment_end = closest_info[0][i][:]
-1           
+
         vector_traj = segment_end - segment_start  # vectors along line segment
         vector_points = segment_start - current_pos  # vectors from robot to points
 
