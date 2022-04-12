@@ -19,16 +19,18 @@ class PurePursuit(object):
     """
 
     def __init__(self):
-        self.odom_topic = rospy.get_param("~odom_topic")
-        self.speed = 10
+        print("INITIALIZED")
+        # self.odom_topic = rospy.get_param("~odom_topic")
+        self.speed = 1
         self.Klook = 1.5  # constant that affects lookahead
+        self.received_trajectory = False
         # based on speed
         self.lookahead = self.Klook * self.speed
-        self.wheelbase_length = .17  # TODO: FILL IN
+        self.wheelbase_length = .17
         self.trajectory = utils.LineTrajectory("/followed_trajectory")
         self.traj_sub = rospy.Subscriber("/trajectory/current", PoseArray, self.trajectory_callback, queue_size=1)
         self.drive_pub = rospy.Publisher("/drive", AckermannDriveStamped, queue_size=1)
-        self.odom_sub = rospy.Subscriber("/pf/pose/odom", Odometry, self.Pursuiter, queue_size=1)
+        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.Pursuiter, queue_size=1)
 
     def trajectory_callback(self, msg):
         ''' Clears the currently followed trajectory, and loads the new one from the message
@@ -37,6 +39,7 @@ class PurePursuit(object):
         self.trajectory.clear()
         self.trajectory.fromPoseArray(msg)
         self.trajectory.publish_viz(duration=0.0)
+        self.received_trajectory = True
 
     def find_closest_point(self, robot):
         """
@@ -59,6 +62,10 @@ class PurePursuit(object):
 
         p = points2 - points1
 
+        print("p shape:", p.shape)
+        print("point1 shape:", points1.shape)
+        print("points2 shape:", points2.shape)
+
         car_x = np.full((points1.shape[0],), robot.pose.pose.position.x)
         car_y = np.full((points1.shape[0],), robot.pose.pose.position.y)
 
@@ -77,10 +84,10 @@ class PurePursuit(object):
 
         current_point_index = np.argmin(dist_sqrd)
         closest_info = (points[current_point_index:], self.trajectory.distances[current_point_index:])
-        return self.get_lookahead_point(closest_info)
+        return self.get_lookahead_point(closest_info, robot)
 
-    def get_lookahead_point(self, closest_info):  # TODO NEED ANGELS SECTION TO KNOW CLOSEST TRAJECTORY SEGMENT
-        current_pos = np.asarray((self.odom_sub.pose.pose.x, self.odom_sub.pose.pose.y))  # Centre of circle
+    def get_lookahead_point(self, closest_info, robot):
+        current_pos = np.asarray((robot.pose.pose.position.x, robot.pose.pose.position.y))  # Centre of circle
         lookahead_dist = self.lookahead  # Radius of circle
 
         current_traj, current_dist = closest_info
@@ -111,7 +118,7 @@ class PurePursuit(object):
         disc = b ** 2 - 4 * a * c
         if disc < 0:
             self.lookahead *= 2
-            return self.get_lookahead_point(closest_info)
+            return self.get_lookahead_point(closest_info, robot)
 
         # 2 intersection solns. if btw 0  and 1 the line doesnt hit the circle but would if extended
         sqrt_disc = math.sqrt(disc)
@@ -119,7 +126,7 @@ class PurePursuit(object):
         t2 = (-b - sqrt_disc) / (2 * a)
         if not (0 <= t1 <= 1 or 0 <= t2 <= 1):
             self.lookahead *= 2
-            return self.get_lookahead_point(closest_info)
+            return self.get_lookahead_point(closest_info, robot)
 
         # get point on the line
         t = max(0, min(1, - b / (2 * a)))
@@ -127,36 +134,37 @@ class PurePursuit(object):
 
         
     def Pursuiter(self,msg):
-        """
+        if self.received_trajectory:
+            """
 
-        """
-        goal= self.find_closest_point(msg)
+            """
+            goal= self.find_closest_point(msg)
 
-        position= self.odom_topic.pose.pose.position
-        orientation=self.odom_topic.pose.pose.orientation
-        current_pos= np.asarray([position.x,position.y])
+            position= msg.pose.pose.position
+            orientation=msg.pose.pose.orientation
+            current_pos= np.asarray([position.x,position.y])
 
-        goal_vec= goal-current_pos
+            goal_vec= goal-current_pos
 
-        current_rot=tf.transformations.euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])[2]
+            current_rot=tf.transformations.euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])[2]
 
-        rot_matrix= np.array([[np.cos(-current_rot),-np.sin(-current_rot)], [np.sin(-current_rot), np.cos(-current_rot)]])
+            rot_matrix= np.array([[np.cos(-current_rot),-np.sin(-current_rot)], [np.sin(-current_rot), np.cos(-current_rot)]])
 
-        rot_point= np.dot(rot_matrix, goal_vec.T)
+            rot_point= np.dot(rot_matrix, goal_vec.T)
 
-        L1 = np.linalg.norm(rot_point)
-        
-        alpha= np.arctan2(rot_point[1],rot_point[0])
+            L1 = np.linalg.norm(rot_point)
+            
+            alpha= np.arctan2(rot_point[1],rot_point[0])
 
-        steer_angle= np.arctan2((2*self.wheelbase_length * np.sin(alpha)),L1)
+            steer_angle= np.arctan2((2*self.wheelbase_length * np.sin(alpha)),L1)
 
-        new_vel=3.06(-steer_angle+1.4)(steer_angle+1.4) # the 3.06 is the speed constant (assuming 6 m/s max speed), and the 1.4 is max turning angle (assuming 1.4)
+            new_vel=3.06*(-steer_angle+1.4)*(steer_angle+1.4) # the 3.06 is the speed constant (assuming 6 m/s max speed), and the 1.4 is max turning angle (assuming 1.4)
 
-        ack=AckermannDriveStamped()
-        ack.drive.steering_angle=steer_angle
-        ack.drive.speed=new_vel
+            ack=AckermannDriveStamped()
+            ack.drive.steering_angle=steer_angle
+            # ack.drive.speed=new_vel
 
-        self.drive_pub.publish(ack)
+            self.drive_pub.publish(ack)
 
 
 
