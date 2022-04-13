@@ -20,9 +20,9 @@ class PurePursuit(object):
 
     def __init__(self):
         print("INITIALIZED")
-        # self.odom_topic = rospy.get_param("~odom_topic")
+        self.odom_topic = rospy.get_param("~odom_topic")
         self.speed = 1
-        self.Klook = 1.5  # constant that affects lookahead
+        self.Klook = 0.2  # constant that affects lookahead
         self.received_trajectory = False
         # based on speed
         self.lookahead = self.Klook * self.speed
@@ -30,7 +30,7 @@ class PurePursuit(object):
         self.trajectory = utils.LineTrajectory("/followed_trajectory")
         self.traj_sub = rospy.Subscriber("/trajectory/current", PoseArray, self.trajectory_callback, queue_size=1)
         self.drive_pub = rospy.Publisher("/drive", AckermannDriveStamped, queue_size=1)
-        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.Pursuiter, queue_size=1)
+        self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.Pursuiter, queue_size=1)
 
     def trajectory_callback(self, msg):
         ''' Clears the currently followed trajectory, and loads the new one from the message
@@ -69,18 +69,17 @@ class PurePursuit(object):
         car_x = np.full((points1.shape[0],), robot.pose.pose.position.x)
         car_y = np.full((points1.shape[0],), robot.pose.pose.position.y)
 
-        n = np.dot(p, np.transpose(p))
+        n = p[:,0]**2 + p[:,1]**2
 
-        u = ((np.matmul(car_x - points1[:, 0], np.transpose(p[:, 0]))) + (
-            np.matmul(car_y - points1[:, 1], np.transpose(p[:, 1])))) / n
+        u = (((car_x - points1[:, 0]) * p[:,0]) + (car_y - points1[:, 1]) * p[:,1]) / n
 
         u[u > 1] = 1
         u[u < 0] = 0
 
         # to facilitate dist calc
-        x_sec = points1[:, 0] + np.dot(u, np.transpose(p[:, 0])) - car_x
-        y_sec = points1[:, 1] + np.dot(u, np.transpose(p[:, 1])) - car_y
-        dist_sqrd = np.matmul(x_sec, np.transpose(x_sec)) + np.matmul(y_sec, np.transpose(y_sec))
+        x_sec = points1[:, 0] + u*np.transpose(p[:, 0]) - car_x
+        y_sec = points1[:, 1] + u*np.transpose(p[:, 1]) - car_y
+        dist_sqrd = x_sec**2 + y_sec**2
 
         current_point_index = np.argmin(dist_sqrd)
         closest_info = (points[current_point_index:], self.trajectory.distances[current_point_index:])
@@ -91,8 +90,12 @@ class PurePursuit(object):
         lookahead_dist = self.lookahead  # Radius of circle
 
         current_traj, current_dist = closest_info
+
+        if len(current_traj) <= 3:
+            return (current_traj[-1], True)
+
         if (abs(current_dist[0] - self.lookahead) < 1e-6):
-            return current_traj[0]
+            return (current_traj[0], False)
 
         for i in range(len(current_traj)):
             pt = current_traj[i][:]
@@ -125,12 +128,12 @@ class PurePursuit(object):
         t1 = (-b + sqrt_disc) / (2 * a)
         t2 = (-b - sqrt_disc) / (2 * a)
         if not (0 <= t1 <= 1 or 0 <= t2 <= 1):
-            self.lookahead *= 2
+            self.lookahead *= 0.5
             return self.get_lookahead_point(closest_info, robot)
 
         # get point on the line
         t = max(0, min(1, - b / (2 * a)))
-        return P1 + t * (P2-P1)
+        return (P1 + t * (P2-P1), False)
 
         
     def Pursuiter(self,msg):
@@ -138,7 +141,7 @@ class PurePursuit(object):
             """
 
             """
-            goal= self.find_closest_point(msg)
+            goal, reached_end = self.find_closest_point(msg)
 
             position= msg.pose.pose.position
             orientation=msg.pose.pose.orientation
@@ -148,9 +151,9 @@ class PurePursuit(object):
 
             current_rot=tf.transformations.euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])[2]
 
-            rot_matrix= np.array([[np.cos(-current_rot),-np.sin(-current_rot)], [np.sin(-current_rot), np.cos(-current_rot)]])
+            rot_matrix= np.array([[np.cos(current_rot),-np.sin(current_rot)], [np.sin(current_rot), np.cos(current_rot)]])
 
-            rot_point= np.dot(rot_matrix, goal_vec.T)
+            rot_point= np.dot(np.linalg.inv(rot_matrix), goal_vec.T)
 
             L1 = np.linalg.norm(rot_point)
             
@@ -162,8 +165,9 @@ class PurePursuit(object):
 
             ack=AckermannDriveStamped()
             ack.drive.steering_angle=steer_angle
-            # ack.drive.speed=new_vel
-
+            ack.drive.speed=self.speed #new_vel
+            if L1 < 1.0 and reached_end:
+                ack.drive.speed = 0.0
             self.drive_pub.publish(ack)
 
 
