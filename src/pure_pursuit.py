@@ -20,7 +20,7 @@ class PurePursuit(object):
 
     def __init__(self):
         print("INITIALIZED")
-        self.odom_topic = rospy.get_param("~odom_topic")
+        # self.odom_topic = rospy.get_param("~odom_topic")
         self.speed = 1
         self.Klook = 0.2  # constant that affects lookahead
         self.received_trajectory = False
@@ -30,7 +30,7 @@ class PurePursuit(object):
         self.trajectory = utils.LineTrajectory("/followed_trajectory")
         self.traj_sub = rospy.Subscriber("/trajectory/current", PoseArray, self.trajectory_callback, queue_size=1)
         self.drive_pub = rospy.Publisher("/drive", AckermannDriveStamped, queue_size=1)
-        self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.Pursuiter, queue_size=1)
+        self.odom_sub = rospy.Subscriber("pf/pose/odom", Odometry, self.Pursuiter, queue_size=1)
 
     def trajectory_callback(self, msg):
         ''' Clears the currently followed trajectory, and loads the new one from the message
@@ -120,16 +120,14 @@ class PurePursuit(object):
         # find discriminant. if neg then line misses circle and no real soln
         disc = b ** 2 - 4 * a * c
         if disc < 0:
-            self.lookahead *= 2
-            return self.get_lookahead_point(closest_info, robot)
+            return (None, False)
 
         # 2 intersection solns. if btw 0  and 1 the line doesnt hit the circle but would if extended
         sqrt_disc = math.sqrt(disc)
         t1 = (-b + sqrt_disc) / (2 * a)
         t2 = (-b - sqrt_disc) / (2 * a)
         if not (0 <= t1 <= 1 or 0 <= t2 <= 1):
-            self.lookahead *= 0.5
-            return self.get_lookahead_point(closest_info, robot)
+            return (None, False)
 
         # get point on the line
         t = max(0, min(1, - b / (2 * a)))
@@ -143,32 +141,39 @@ class PurePursuit(object):
             """
             goal, reached_end = self.find_closest_point(msg)
 
-            position= msg.pose.pose.position
-            orientation=msg.pose.pose.orientation
-            current_pos= np.asarray([position.x,position.y])
+            if goal != None:
+                position= msg.pose.pose.position
+                orientation=msg.pose.pose.orientation
+                current_pos= np.asarray([position.x,position.y])
 
-            goal_vec= goal-current_pos
+                goal_vec= goal-current_pos
 
-            current_rot=tf.transformations.euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])[2]
+                current_rot=tf.transformations.euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])[2]
 
-            rot_matrix= np.array([[np.cos(current_rot),-np.sin(current_rot)], [np.sin(current_rot), np.cos(current_rot)]])
+                rot_matrix= np.array([[np.cos(current_rot),-np.sin(current_rot)], [np.sin(current_rot), np.cos(current_rot)]])
 
-            rot_point= np.dot(np.linalg.inv(rot_matrix), goal_vec.T)
+                rot_point= np.dot(np.linalg.inv(rot_matrix), goal_vec.T)
 
-            L1 = np.linalg.norm(rot_point)
-            
-            alpha= np.arctan2(rot_point[1],rot_point[0])
+                L1 = np.linalg.norm(rot_point)
+                
+                alpha= np.arctan2(rot_point[1],rot_point[0])
 
-            steer_angle= np.arctan2((2*self.wheelbase_length * np.sin(alpha)),L1)
+                steer_angle= np.arctan2((2*self.wheelbase_length * np.sin(alpha)),L1)
 
-            new_vel=3.06*(-steer_angle+1.4)*(steer_angle+1.4) # the 3.06 is the speed constant (assuming 6 m/s max speed), and the 1.4 is max turning angle (assuming 1.4)
+                if steer_angle > 0.34 or steer_angle < -0.34:
+                    self.speed = 0.5
+                elif steer_angle > 0:
+                    self.speed = -1.8 * steer_angle/0.34 + 4
+                else:
+                    self.speed = 1.8 * steer_angle/0.34 + 4
 
-            ack=AckermannDriveStamped()
-            ack.drive.steering_angle=steer_angle
-            ack.drive.speed=self.speed #new_vel
-            if L1 < 1.0 and reached_end:
-                ack.drive.speed = 0.0
-            self.drive_pub.publish(ack)
+                self.lookahead = self.Klook * self.speed
+                ack=AckermannDriveStamped()
+                ack.drive.steering_angle=steer_angle
+                ack.drive.speed=self.speed #new_vel
+                if L1 < 1.0 and reached_end:
+                    ack.drive.speed = 0.0
+                self.drive_pub.publish(ack)
 
 
 
