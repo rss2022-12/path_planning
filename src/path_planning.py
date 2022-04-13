@@ -24,6 +24,7 @@ class PathPlan(object):
         self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_cb, queue_size=10)
         self.traj_pub = rospy.Publisher("/trajectory/current", PoseArray, queue_size=10)
         self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.odom_cb)
+
         self.rrtpath = rospy.Publisher("/trajectory/update",PoseArray,queue_size=100)
 
         #flags and things
@@ -31,6 +32,7 @@ class PathPlan(object):
         self.maxerror=50 #maxerror between final node and goal for rrt
         self.threshold_error=2
         self.algorithm="RRT" #or BFS
+
 
         # Instance variables
         self.map_acquired = False
@@ -90,19 +92,11 @@ class PathPlan(object):
         self.start_point = (x, y, theta)
         # print("START POINT INITIALIZED")
 
-        if self.start_point != self.last_start_point:
+        if self.last_start_point == None:
             print(self.start_point)
             self.plan_path(self.start_point, self.end_point, self.map)
         
         self.last_start_point = self.start_point
-        
-        if self.algorithm=="RRT":
-            self.rrt_algorithm(self.start_point,self.end_point)
-        else:
-            self.plan_path(self.start_point, self.end_point, self.map)
-
-        
-
 
 
     def goal_cb(self, msg):
@@ -158,35 +152,48 @@ class PathPlan(object):
 
         return (np.round(pixel_pose[0]/map.info.resolution).astype(int), np.round(pixel_pose[1]/map.info.resolution).astype(int))
 
+    def distance(self, current_point, end_point):
+        return ((end_point[0] - current_point[0])**2 + (end_point[1] - current_point[1])**2)**(1/2)
 
     def plan_path(self, start_point, end_point, map):
         return
         if start_point != None and end_point != None and self.map_acquired:
             # Create path
 
-            # BFS
+            # A*
             start_coordinate = self.real_to_pixel(start_point, self.map_msg)
             end_coordinate = self.real_to_pixel(end_point, self.map_msg)
             print(start_coordinate, end_coordinate)
             queue = [start_coordinate]
-            visited = set()
+            queue_priorities = np.array([0.0])
+            costs = {start_coordinate: 0.0}
             parents = {}
-            end_found = False
-            # for tup in set(self.map_graph.keys()):
-            #     if abs(tup[0] - end_coordinate[0]) < 10 and abs(tup[1] - end_coordinate[1]) < 10:
-            #         print(tup)
-            while (not end_found) and len(queue) > 0:
+            while len(queue) > 0:
+                # print(queue[0])
                 curr = queue.pop(0)
-                visited.add(curr)
+                queue_priorities = queue_priorities[1:]
+
+                if curr == end_coordinate:
+                    parents[curr]
+                    break
+
                 for adj in self.map_graph[curr]:
-                    if adj == end_coordinate:
-                        end_found = True
+                    cost = costs[curr] + 1.0
+                    if adj not in costs or cost < costs[adj]:
+                        costs[adj] = cost
+                        priority = cost + self.distance(adj, end_coordinate)
+                        index = np.searchsorted(queue_priorities, priority)
+                        # print("queue:", queue)
+                        # print("queue priorities:", queue_priorities)
+                        # print("current:", curr)
+                        # print(index)
+                        queue.insert(index, adj)
+                        queue_priorities = np.insert(queue_priorities, index, np.array(priority))
+                        # print("queue:", queue)
+                        # print("queue priorities:", queue_priorities)
                         parents[adj] = curr
-                        break
-                    if adj not in visited:
-                        queue.append(adj)
-                        visited.add(adj)
-                        parents[adj] = curr
+                        if adj == end_coordinate:
+                            print("REACHED END")
             
             # Extract path
             path = [end_coordinate]
@@ -195,7 +202,6 @@ class PathPlan(object):
                 curr = parents[curr]
                 path.append(curr)
             path.reverse()
-            
 
             # Convert to real-world frame
             real_path = [self.pixel_to_real(px, self.map_msg) for px in path]
@@ -211,6 +217,7 @@ class PathPlan(object):
 
             # visualize trajectory Markers
             self.trajectory.publish_viz()
+
             
     def rrt_algorithm(self, start_point, end_point):
          if start_point != None and end_point != None and self.map_acquired:
@@ -374,6 +381,7 @@ class PathPlan(object):
 
         # visualize trajectory Markers
         self.trajectory.publish_viz()
+
 
 if __name__=="__main__":
     rospy.init_node("path_planning")
