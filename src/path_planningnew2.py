@@ -7,7 +7,6 @@ from nav_msgs.msg import Odometry, OccupancyGrid
 import rospkg
 import time, os
 from utils import LineTrajectory
-from visualization_msgs.msg import MarkerArray, Marker
 
 # Custom imports
 import skimage.morphology
@@ -25,15 +24,13 @@ class PathPlan(object):
         self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_cb, queue_size=10)
         self.traj_pub = rospy.Publisher("/trajectory/current", PoseArray, queue_size=10)
         self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.odom_cb)
-        self.rrtpath = rospy.Publisher("/visualization_msgs",Marker,queue_size=20)
-        self.endpoint=rospy.Publisher("visualization_msgs1",Marker,queue_size=20)
+        self.rrtpath = rospy.Publisher("/trajectory/update",PoseArray,queue_size=100)
 
         #flags and things
         
-        self.maxerror=100 #maxerror between final node and goal for rrt
+        self.maxerror=50 #maxerror between final node and goal for rrt
         self.threshold_error=2
-        self.algorithm="RRT" #or BFS\
-        self.RRTdone=False
+        self.algorithm="RRT" #or BFS
 
         # Instance variables
         self.map_acquired = False
@@ -58,6 +55,7 @@ class PathPlan(object):
             self.map[self.map == 100] = 1 # Convert to binary for skimage
             self.map = skimage.morphology.dilation(self.map, skimage.morphology.disk(10))
             self.map[self.map == 1] = 100
+            
             # map_image = plt.imshow(self.map)
             # plt.show()
             print("INITIALIZED MAP")
@@ -125,7 +123,7 @@ class PathPlan(object):
 
         if self.last_end_point != self.end_point:
             if self.algorithm=="RRT":
-                self.RRTdone=False
+                print("here!")
                 self.rrt_algorithm(self.start_point,self.end_point)
             else:
                 self.plan_path(self.start_point, self.end_point, self.map)
@@ -227,48 +225,15 @@ class PathPlan(object):
             self.trajectory.publish_viz()
             
     def rrt_algorithm(self, start_point, end_point):
-         if start_point != None and end_point != None and self.map_acquired and self.RRTdone==False:
-            marker_end=Marker()
-            marker_end.header.frame_id = "/map"
-            marker_end.header.stamp=rospy.Time.now()
-            # # marker_pt.id=0
-            marker_end.pose.position.x = end_point[0]
-            marker_end.pose.position.y = end_point[1]
-            marker_end.pose.position.z=0
-            marker_end.scale.x = 0.2
-            marker_end.scale.y = 0.2
-            marker_end.scale.z = 0.2
-            marker_end.color.a = 1.0 # Don't forget to set  the alpha!
-            marker_end.color.r = 1.0
-            marker_end.color.g = 0.0
-            marker_end.color.b = 0.0
-            marker_end.type=2
-            self.endpoint.publish(marker_end)
+         if start_point != None and end_point != None and self.map_acquired:
             # Create path
             # self.leaf_array=0
          #change to coordinates
             start_point = self.real_to_pixel(start_point, self.map_msg)
             end_point = self.real_to_pixel(end_point, self.map_msg)
             leaf2parent={start_point:-1}
-     
-
-            marker_pt=Marker()
-            marker_pt.header.frame_id = "/map"
-            marker_pt.header.stamp=rospy.Time.now()
-            marker_pt.scale.x = 0.2
-            marker_pt.scale.y = 0.2
-            marker_pt.scale.z = 0.2
-            marker_pt.color.a = 1.0 # Don't forget to set  the alpha!
-            marker_pt.color.r = 0.0
-            marker_pt.color.g = 1.0
-            marker_pt.color.b = 0.0
-            marker_pt.type=marker_pt.SPHERE_LIST
-            marker_pt.action=marker_pt.ADD
-        
-            points=[]
+            # print(end_point)
             
-            
-            all_errs=np.array([1000])
             while True:
                 # print(leaf2parent)
                 random_point=self.random_sample(start_point,end_point)
@@ -279,52 +244,49 @@ class PathPlan(object):
             
                 new_leaf=self.steering(random_point,nearest)
               
-              
-                new_leaf_real=self.pixel_to_real(new_leaf,self.map_msg)
-                pt=Point()
-                pt.x=new_leaf_real[0]
-                pt.y=new_leaf_real[1]
-                pt.z=0
-                points.append(pt)
+                self.leaf_array=PoseArray()
+            
+               
+                # pose = Pose()
+               
+                # pose.position.x = new_leaf[0]
+                # pose.position.y = new_leaf[1]
+                # pose.orientation.x= new_leaf[0]
+                # pose.orientation.y= new_leaf[1]
                 
-              
-                marker_pt.points=points   
-                self.rrtpath.publish(marker_pt)
+                # self.leaf_array.poses.append(pose)
+                
+                # self.leaf_array.header.frame_id = "map"
+                # self.rrtpath.publish(self.leaf_array)
             
               
                 # print(new_leaf)
                 if self.check_obstacle(nearest,new_leaf):
                     leaf2parent[(new_leaf[0],new_leaf[1])]=nearest
                     err=np.sqrt((new_leaf[0]-end_point[0])**2+(new_leaf[1]-end_point[1])**2)
-                    # print("newlef:",new_leaf,end_point,err)
-                    np.append(all_errs,err)
-                    print(np.min(all_errs))
+                    
                     if err < self.maxerror:
                         print(leaf2parent)
                         # print(err)
-                        self.RRT_path(leaf2parent,new_leaf,start_point,end_point)
-                        self.RRTdone=True
+                        self.RRT_path(leaf2parent,new_leaf,start_point)
                         break
             
     def random_sample(self,start_point,end_point):
-        if np.random.randint(20)==7:
+        if np.random.randint(10)==7:
             return end_point
         else:
             
             random_point=np.random.randint(len(self.map_graph))
             random_point=self.map_graph.keys()[random_point]
-           
             while random_point[0]==start_point[0] and random_point[1]==start_point[1]:
                  random_point=np.random.randint(len(self.map_graph))
                  random_point=self.map_graph.keys()[random_point]
-            # right_random_point=(random_point[0],-random_point[1])     
+                
             return random_point
         
     def find_nearest(self,random_point,leaf2parent):
-        # print(random_point)
-        # print(leaf2parent)
        
-        error=np.sum((np.asarray(leaf2parent) - random_point)**2, axis=1)
+        error=np.atleast_1d(np.sum((np.asarray(random_point)-np.asarray(leaf2parent))**2)) #square error
         
         min_error_ind=np.argmin(error)
 
@@ -340,9 +302,9 @@ class PathPlan(object):
         err=np.sqrt((nearest[0]-random_point[0])**2+(nearest[1]-random_point[1])**2)
         if err < 200:
             return random_point
-        direction = np.array([random_point[0]-nearest[0]/(err),random_point[1]-nearest[1]/err])  # normalization
+        direction = np.array(random_point[0]-nearest[0]/(err),random_point[1]-nearest[1]/err)  # normalization
         new_point = np.round(nearest + 100*direction)
-        # print("sttering:",nearest,random_point,direction,new_point)
+        print("sttering:",nearest,random_point,direction,new_point)
         return (new_point[0],new_point[1])
     
     def check_obstacle(self,nearest,new_leaf):
@@ -394,9 +356,9 @@ class PathPlan(object):
         # return True
         
     
-    def RRT_path(self,tree,final_leaf,start_leaf,endpoint):
+    def RRT_path(self,tree,final_leaf,start_leaf):
         
-        path=[endpoint,final_leaf]
+        path=[final_leaf]
         # leafend=0
         while final_leaf!=-1:
             leafend=tree[final_leaf]
