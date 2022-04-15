@@ -34,12 +34,13 @@ class PurePursuit(object):
         self.drive_pub = rospy.Publisher("/drive", AckermannDriveStamped, queue_size=1)
         self.odom_sub = rospy.Subscriber("/odom", Odometry, self.Pursuiter, queue_size=1)
 
-        self.look_index = 0 
-        self.last_waypoint = 0 
+        self.look_index=0
         self.last_goal=np.array([0,0])
 
         self.closestpub=rospy.Publisher("/closest",Marker,queue_size=1)
         self.look_circle=rospy.Publisher("/look_circle",Marker,queue_size=1)
+        self.goal_pt=rospy.Publisher("/goal_pt",Marker,queue_size=1)
+        #self.goal_vec=rospy.Publisher("/goal_vec",Marker,queue_size=1);
         
         
     def trajectory_callback(self, msg):
@@ -49,31 +50,33 @@ class PurePursuit(object):
         self.trajectory.clear()
         self.trajectory.fromPoseArray(msg)
         self.trajectory.publish_viz(duration=0.0)
-        self.last_goal=np.array([0,0])
-        self.last_waypoint=0
+        self.last_goal=np.asarray(self.trajectory.points[0])
         self.look_index=0
         self.received_trajectory = True
 
 
-    def visualizer(self, pos_x, pos_y, color=[0,1,0], shape=SPHERE):
+    def visualizer(self, pos_x, pos_y, color=[0,1,0], shape=2,or_x=0,or_y=0,or_z=0,or_w=0):
         poii=Marker()
         poii.header.frame_id="map"
         poii.pose.position.x=pos_x
         poii.pose.position.y=pos_y
         poii.pose.position.z=0
-        poii.pose.orientation.x=0
-        poii.pose.orientation.y=0
-        poii.pose.orientation.z=0
-        poii.pose.orientation.w=0
+        poii.pose.orientation.x=or_x
+        poii.pose.orientation.y=or_y
+        poii.pose.orientation.z=or_z
+        poii.pose.orientation.w=or_w
         poii.color.a=1
         poii.color.r=color[0]
         poii.color.g=color[1]
         poii.color.g=color[2]
         poii.type=shape
+        poii.scale.x=1
+        poii.scale.y=1
+        poii.scale.z=1
         return poii
         
     def find_closest_point(self, robot):
-        
+        """
         Finds "start point" for your robot from the trajectory at
         the current time.
 
@@ -82,7 +85,7 @@ class PurePursuit(object):
         ----------------------------------
         Output:
         Tuple of (New trajectory starting at closest point, distances of segments)
-        
+        """
         # car_x=msg.pose.pose.x
         # car_y= msg.pose.pose.y
 
@@ -121,7 +124,7 @@ class PurePursuit(object):
         
         return self.get_lookahead_point(closest_info, robot)
     
-    def get_lookahead_point(self,robot):
+    def get_lookahead_point(self,c_i,robot):
         current_pos = np.asarray((robot.pose.pose.position.x, robot.pose.pose.position.y))  # Centre of circle
         look = self.lookahead  # Radius of circle
 
@@ -136,13 +139,17 @@ class PurePursuit(object):
 
         #if (abs(current_dist[c_i] - self.lookahead) < 1e-6):
         #    return (current_traj[c_i+1], False)
+        e_i=0
+        if self.last_goal.all()==np.asarray(self.trajectory.points[0]).all():
+            e_i=2
+            
         
-        for i in range(self.last_waypoint,len(current_traj)-1):
+        for i in range(c_i,len(current_traj)-1-e_i):
             P1 = current_traj[i]
             P2 = current_traj[i+1]
 
             segment_v=P2-P1
-            vector_points= P2- current_pos
+            vector_points= P1- current_pos
 
             a=np.dot(segment_v,segment_v)
             b=2*np.dot(vector_points,segment_v)
@@ -157,13 +164,11 @@ class PurePursuit(object):
 
                 if (0<=t1<=1) and (i+t1>self.look_index):
                     self.look_index = i+t1
-                    self.last_waypoint = i
                     self.last_goal= t1 *segment_v+P1
                     return (self.last_goal,False)
 
                 elif (0<=t2<=1) and (i+t2>self.look_index):
                     self.look_index = i+t1
-                    self.last_waypoint = i
                     self.last_goal= t1 *segment_v+P1
                     return (self.last_goal,False)
 
@@ -217,47 +222,56 @@ class PurePursuit(object):
         #return (P1 + t * (P2-P1), False)
 
         """
-    def Pursuiter(self,pose_msg):
+    def Pursuiter(self,msg):
 
-        # If trajectory isn't set, don't update drive messages.
-        if not self.received_trajectory:
-            return
+        if self.received_trajectory:
+            """
 
-        position = pose_msg.pose.pose.position
-        goal_map ,end= self.get_lookahead_point(pose_msg) # Instantaneous goal - lookahead point
+            """
+            goal, reached_end = self.find_closest_point(msg)
 
-        # Transform from world coord to robot.
-        quat = pose_msg.pose.pose.orientation
-        euler = tf.transformations.euler_from_quaternion([quat.x, quat.y, quat.z, quat.w])
-        sint = np.sin(euler[2])
-        cost = np.cos(euler[2])
-        robot_transform = np.array([[cost, -sint, 0, position.x], [sint, cost, 0, position.y], [0,0,1,0], [0,0,0,1]])
-        goal_transform = np.array([[1, 0, 0, goal_map[0]], [0, 1, 0, goal_map[1]], [0,0,1,0], [0,0,0,1]])
+            position= msg.pose.pose.position
+            orientation=msg.pose.pose.orientation
+            current_pos= np.asarray([position.x,position.y])
 
-        goal_car = np.linalg.inv(np.matmul(np.linalg.inv(goal_transform), robot_transform))
-        goal = np.array([goal_car[0, -1], goal_car[1,-1]])
 
-        # Calculate the proper steering angle.
-        R = (self.lookahead*self.lookahead)/(2*goal[1])# Radius of curvature connecting these points
-        eta = np.arctan(self.wheelbase_length / R)
+            lookahead_circle=self.visualizer(current_pos[0],current_pos[1],color=[1,0,0],shape=3)
+            lookahead_circle.scale.x=self.lookahead
+            lookahead_circle.scale.y=self.lookahead
+            self.look_circle.publish(lookahead_circle)
 
-        # Create the drive message.
-        drive_msg = AckermannDriveStamped()
-        drive_msg.header.stamp = rospy.Time.now()
-        drive_msg.header.frame_id = "base_link"
-        drive_msg.drive.steering_angle = eta
+            goaler=self.visualizer(goal[0],goal[1],color=[0,0,1],shape=2)
+            self.goal_pt.publish(goaler)
+            goal_vec= goal-current_pos
 
-        # Check to see if we are close enough to the final destination to stop.
-        pos = np.array([position.x, position.y])
-        if np.linalg.norm(pos - self.last_goal) < 0.25:
-            drive_msg.drive.speed = 0
-        else:
-            drive_msg.drive.speed = self.speed
 
-        self.drive_pub.publish(drive_msg)
 
-        # Update lookahead distance and velocity?
-        #self.update_from_turn(eta)
+            current_rot=tf.transformations.euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])[2]
+
+            rot_matrix= np.array([[np.cos(current_rot),-np.sin(current_rot)], [np.sin(current_rot), np.cos(current_rot)]])
+
+            rot_point= np.dot(np.linalg.inv(rot_matrix), goal_vec.T)
+
+            L1 = np.linalg.norm(rot_point)
+                
+            alpha= np.arctan2(rot_point[1],rot_point[0])
+
+            steer_angle= np.arctan2((2*self.wheelbase_length * np.sin(alpha)),L1)
+
+                #new_vel=3.06*(-steer_angle+1.4)*(steer_angle+1.4) # the 3.06 is the speed constant (assuming 6 m/s max speed), and the 1.4 is max turning angle (assuming 1.4)
+            abs_steer=min(abs(steer_angle),0.5)
+
+                #print("angle is : ",steer_angle)
+                #print("goal is :" , goal)
+            self.speed= (1-abs_steer)*self.max_speed
+            self.lookahead=(1-abs_steer)*self.max_look
+            ack=AckermannDriveStamped()
+            ack.drive.steering_angle=steer_angle
+            ack.drive.speed=self.speed #new_vel
+                #if L1 < 1.0 and reached_end:
+                #    ack.drive.speed = 0.0
+            self.drive_pub.publish(ack)
+
 
 
 
