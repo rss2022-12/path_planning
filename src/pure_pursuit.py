@@ -129,21 +129,15 @@ class PurePursuit(object):
         look = self.lookahead  # Radius of circle
 
         
-        #current_traj, current_dist = closest_info
+
         current_traj=np.asarray(self.trajectory.points)
         current_dist=np.asarray(self.trajectory.distances)
 
-        #if len(current_traj) <= 3:
-        #if len(current_traj)-self.last_waypoint<=5:
-        #    return (current_traj[-1], True)
 
         if (abs(current_dist[c_i] - self.lookahead) < 1e-6):
             self.last_goal=np.asarray(current_traj[c_i+1])
             return self.last_goal
-        e_i=0
-        if self.last_goal.all()==np.asarray(self.trajectory.points[0]).all():
-            e_i=2
-            
+
         for i in range(c_i,len(current_traj)-1):
             
             P1 = current_traj[i]
@@ -176,56 +170,6 @@ class PurePursuit(object):
         return self.last_goal
             
                 
-
-        """
-            pt = current_traj[i][:]
-            squared_dist = np.dot(current_pos - pt, current_pos - pt)
-            if (squared_dist > self.lookahead ** 2):
-                ind=i
-                break
-        
-        if ind==None:
-            return (self.last_goal,False)
-        P1 = np.asarray(current_traj[ind-1])  # last point inside circle
-        P2 = np.asarray(current_traj[ind])
-        segment_start = P1[:]
-        segment_end = P2[:]
-        
-        P1=current_traj[ind-1]
-        P2= current_traj[ind]
-        segment_start = current_traj[ind-1][:]
-        segment_end= current_traj[ind][:]
-        
-        
-        vector_traj = segment_end - segment_start  # vectors along line segment
-        vector_points = segment_start - current_pos  # vectors from robot to points
-
-        # compute coefficients
-
-        a = np.dot(vector_traj, vector_traj)
-        b = 2 * np.dot(vector_points, vector_traj)
-        c = np.dot(vector_points, vector_points) - look** 2
-
-        # find discriminant. if neg then line misses circle and no real soln
-        disc = b ** 2 - 4 * a * c
-        if disc < 0:
-            #self.lookahead *= 2
-            return (self.last_goal,False)
-
-        # 2 intersection solns. if btw 0  and 1 the line doesnt hit the circle but would if extended
-        sqrt_disc = math.sqrt(disc)
-        t1 = (-b + sqrt_disc) / (2 * a)
-        t2 = (-b - sqrt_disc) / (2 * a)
-        if not (0 <= t1 <= 1 or 0 <= t2 <= 1):
-            #self.lookahead *= 0.5
-            return (self.last_goal,False)
-
-        # get point on the line
-        #if ind+t1 >self.look_index:
-        t = max(0, min(1, - b / (2 * a)))
-        self.last_goal=P1 + t * (P2-P1)
-        return (P1 + t * (P2-P1), False)
-        """
 
         
     def Pursuiter(self,msg):
