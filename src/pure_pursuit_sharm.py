@@ -102,38 +102,40 @@ class PurePursuit(object):
             squared_dist = np.dot(current_pos - pt, current_pos - pt)
             if (squared_dist > self.lookahead ** 2):
                 break
-
-        P1 = closest_info[0][i-1]  # last point inside circle
-        P2 = closest_info[0][i]
-        segment_start = closest_info[0][i-1][:]
-        segment_end = closest_info[0][i][:]
-
-        vector_traj = segment_end - segment_start  # vectors along line segment
-        vector_points = segment_start - current_pos  # vectors from robot to points
-
-        # compute coefficients
-
-        a = np.dot(vector_traj, vector_traj)
-        b = 2 * np.dot(vector_traj, vector_points)
-        c = np.dot(vector_points, vector_points) - lookahead_dist ** 2
-
-        # find discriminant. if neg then line misses circle and no real soln
-        disc = b ** 2 - 4 * a * c
-        if disc < 0:
-            self.lookahead *= 2
-            return self.get_lookahead_point(closest_info, robot)
-
-        # 2 intersection solns. if btw 0  and 1 the line doesnt hit the circle but would if extended
-        sqrt_disc = math.sqrt(disc)
-        t1 = (-b + sqrt_disc) / (2 * a)
-        t2 = (-b - sqrt_disc) / (2 * a)
-        if not (0 <= t1 <= 1 or 0 <= t2 <= 1):
-            self.lookahead *= 0.5
-            return self.get_lookahead_point(closest_info, robot)
-
-        # get point on the line
-        t = max(0, min(1, - b / (2 * a)))
-        return (P1 + t * (P2-P1), False)
+        
+        while True:
+      
+            P1 = closest_info[0][i-1]  # last point inside circle
+            P2 = closest_info[0][i]
+            segment_start = closest_info[0][i-1][:]
+            segment_end = closest_info[0][i][:]
+    
+            vector_traj = segment_end - segment_start  # vectors along line segment
+            vector_points = segment_start - current_pos  # vectors from robot to points
+    
+            # compute coefficients
+    
+            a = np.dot(vector_traj, vector_traj)
+            b = 2 * np.dot(vector_traj, vector_points)
+            c = np.dot(vector_points, vector_points) - lookahead_dist ** 2
+    
+            # find discriminant. if neg then line misses circle and no real soln
+            disc = b ** 2 - 4 * a * c
+            if disc < 0:
+                self.lookahead *= 2
+                return self.get_lookahead_point(closest_info, robot)
+    
+            # 2 intersection solns. if btw 0  and 1 the line doesnt hit the circle but would if extended
+            sqrt_disc = math.sqrt(disc)
+            t1 = (-b + sqrt_disc) / (2 * a)
+            t2 = (-b - sqrt_disc) / (2 * a)
+            if not (0 <= t1 <= 1 or 0 <= t2 <= 1):
+                self.lookahead *= 0.5
+                return self.get_lookahead_point(closest_info, robot)
+    
+            # get point on the line
+            t = max(0, min(1, - b / (2 * a)))
+            return (P1 + t * (P2-P1), False)
 
         
     def Pursuiter(self,msg):
