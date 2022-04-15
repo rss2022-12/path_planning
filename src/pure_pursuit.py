@@ -22,12 +22,12 @@ class PurePursuit(object):
         print("INITIALIZED")
         #self.odom_topic = rospy.get_param("~odom_topic")
         self.speed = 1
-        self.max_speed=5
+        self.max_speed=4
         #self.Klook = 0.2  # constant that affects lookahead
         self.received_trajectory = False
         # based on speed
         self.lookahead = 0.7
-        self.max_look= 4.2
+        self.max_look= 3.5
         self.wheelbase_length = .3
         self.trajectory = utils.LineTrajectory("/followed_trajectory")
         self.traj_sub = rospy.Subscriber("/trajectory/current", PoseArray, self.trajectory_callback, queue_size=1)
@@ -131,20 +131,21 @@ class PurePursuit(object):
         
         #current_traj, current_dist = closest_info
         current_traj=np.asarray(self.trajectory.points)
-        #current_dist=np.asarray(self.trajectory.distances)
+        current_dist=np.asarray(self.trajectory.distances)
 
         #if len(current_traj) <= 3:
         #if len(current_traj)-self.last_waypoint<=5:
         #    return (current_traj[-1], True)
 
-        #if (abs(current_dist[c_i] - self.lookahead) < 1e-6):
-        #    return (current_traj[c_i+1], False)
+        if (abs(current_dist[c_i] - self.lookahead) < 1e-6):
+            self.last_goal=np.asarray(current_traj[c_i+1])
+            return self.last_goal
         e_i=0
         if self.last_goal.all()==np.asarray(self.trajectory.points[0]).all():
             e_i=2
             
-        
-        for i in range(c_i,len(current_traj)-1-e_i):
+        for i in range(c_i,len(current_traj)-1):
+            
             P1 = current_traj[i]
             P2 = current_traj[i+1]
 
@@ -155,43 +156,46 @@ class PurePursuit(object):
             b=2*np.dot(vector_points,segment_v)
             c=np.dot(vector_points,vector_points)-look**2
 
-            disc= b**2-4*a*c
+            disc= b*b-4*a*c
 
             if disc>=0:
 
                 t1=(-b + np.sqrt(disc))/(2*a)
                 t2 = (-b - np.sqrt(disc))/(2*a)
 
-                if (0<=t1<=1) and (i+t1>self.look_index):
+                if (0<=t1<=1) and (i+t1>=self.look_index):
                     self.look_index = i+t1
                     self.last_goal= t1 *segment_v+P1
-                    return (self.last_goal,False)
+                    return self.last_goal
 
-                elif (0<=t2<=1) and (i+t2>self.look_index):
-                    self.look_index = i+t1
-                    self.last_goal= t1 *segment_v+P1
-                    return (self.last_goal,False)
+                elif (0<=t2<=1) and (i+t2>=self.look_index):
+                    self.look_index = i+t2
+                    self.last_goal= t2 *segment_v+P1
+                    return self.last_goal
 
-        return (self.last_goal,False)
+        return self.last_goal
             
                 
 
         """
-            #pt = current_traj[i][:]
-            #squared_dist = np.dot(current_pos - pt, current_pos - pt)
-            #if (squared_dist > self.lookahead ** 2):
-            #    ind=i
-            #    break
+            pt = current_traj[i][:]
+            squared_dist = np.dot(current_pos - pt, current_pos - pt)
+            if (squared_dist > self.lookahead ** 2):
+                ind=i
+                break
         
-        P1 = closest_info[0][ind-1]  # last point inside circle
-        P2 = closest_info[0][ind]
-        segment_start = closest_info[0][ind-1][:]
-        segment_end = closest_info[0][ind][:]
+        if ind==None:
+            return (self.last_goal,False)
+        P1 = np.asarray(current_traj[ind-1])  # last point inside circle
+        P2 = np.asarray(current_traj[ind])
+        segment_start = P1[:]
+        segment_end = P2[:]
         
         P1=current_traj[ind-1]
         P2= current_traj[ind]
         segment_start = current_traj[ind-1][:]
         segment_end= current_traj[ind][:]
+        
         
         vector_traj = segment_end - segment_start  # vectors along line segment
         vector_points = segment_start - current_pos  # vectors from robot to points
@@ -199,8 +203,8 @@ class PurePursuit(object):
         # compute coefficients
 
         a = np.dot(vector_traj, vector_traj)
-        b = 2 * np.dot(vector_traj, vector_points)
-        c = np.dot(vector_points, vector_points) - lookahead_dist ** 2
+        b = 2 * np.dot(vector_points, vector_traj)
+        c = np.dot(vector_points, vector_points) - look** 2
 
         # find discriminant. if neg then line misses circle and no real soln
         disc = b ** 2 - 4 * a * c
@@ -218,17 +222,19 @@ class PurePursuit(object):
 
         # get point on the line
         #if ind+t1 >self.look_index:
-        #t = max(0, min(1, - b / (2 * a)))
-        #return (P1 + t * (P2-P1), False)
-
+        t = max(0, min(1, - b / (2 * a)))
+        self.last_goal=P1 + t * (P2-P1)
+        return (P1 + t * (P2-P1), False)
         """
+
+        
     def Pursuiter(self,msg):
 
         if self.received_trajectory:
             """
 
             """
-            goal, reached_end = self.find_closest_point(msg)
+            goal= self.find_closest_point(msg)
 
             position= msg.pose.pose.position
             orientation=msg.pose.pose.orientation
@@ -268,6 +274,9 @@ class PurePursuit(object):
             ack=AckermannDriveStamped()
             ack.drive.steering_angle=steer_angle
             ack.drive.speed=self.speed #new_vel
+
+            if goal.all()==np.asarray(self.trajectory.points[-1]).all() and L1<1.0:
+                ack.drive.speed=0.0
                 #if L1 < 1.0 and reached_end:
                 #    ack.drive.speed = 0.0
             self.drive_pub.publish(ack)
