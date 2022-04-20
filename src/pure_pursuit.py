@@ -20,19 +20,19 @@ class PurePursuit(object):
 
     def __init__(self):
         print("INITIALIZED")
-        #self.odom_topic = rospy.get_param("~odom_topic")
-        self.speed = 1
-        self.max_speed=4
+        self.odom_topic = rospy.get_param("~odom_topic")
+        self.speed = 0.5
+        self.max_speed=1
         #self.Klook = 0.2  # constant that affects lookahead
         self.received_trajectory = False
         # based on speed
         self.lookahead = 0.7
-        self.max_look= 3.5
+        self.max_look= 2.0
         self.wheelbase_length = .3
         self.trajectory = utils.LineTrajectory("/followed_trajectory")
         self.traj_sub = rospy.Subscriber("/trajectory/current", PoseArray, self.trajectory_callback, queue_size=1)
-        self.drive_pub = rospy.Publisher("/drive", AckermannDriveStamped, queue_size=1)
-        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.Pursuiter, queue_size=1)
+        self.drive_pub = rospy.Publisher("/vesc/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
+        self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.Pursuiter, queue_size=1)
 
         self.look_index=0
         self.last_goal=np.array([0,0])
