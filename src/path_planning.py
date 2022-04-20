@@ -97,10 +97,9 @@ class PathPlan(object):
         theta = tf.transformations.euler_from_quaternion(quat)[2]
         self.end_point = (x, y, theta)
         print("END POINT INITIALIZED")
-	print(self.end_point)
         #if self.last_end_point != self.end_point:
-         #  print("hi")
-	self.plan_path(self.start_point, self.end_point, self.map)
+            #  print("hi")
+        self.plan_path(self.start_point, self.end_point, self.map)
         
         self.last_end_point = self.end_point
 
@@ -149,12 +148,12 @@ class PathPlan(object):
 
     def plan_path(self, start_point, end_point, map):
         #start_point=(8.74579,13.22515,0.88023)
-	print(start_point)
-	print(end_point)
-	print(self.map_acquired)
-	if start_point != None and end_point != None and self.map_acquired:
+        print(start_point)
+        print(end_point)
+        print(self.map_acquired)
+        if start_point != None and end_point != None and self.map_acquired:
             # Create path
-	    print("in path plan")
+            print("in path plan")
             # A*
             start_coordinate = self.real_to_pixel(start_point, self.map_msg)
             end_coordinate = self.real_to_pixel(end_point, self.map_msg)
@@ -197,6 +196,39 @@ class PathPlan(object):
                 curr = parents[curr]
                 path.append(curr)
             path.reverse()
+
+            # ~~~~~~~~~~~~~~~~~~~ START BFS CODE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            # start_coordinate = self.real_to_pixel(start_point, self.map_msg)
+            # end_coordinate = self.real_to_pixel(end_point, self.map_msg)
+            # print(start_coordinate, end_coordinate)
+            # queue = [start_coordinate]
+            # visited = set()
+            # parents = {}
+            # end_found = False
+            # # for tup in set(self.map_graph.keys()):
+            # #     if abs(tup[0] - end_coordinate[0]) < 10 and abs(tup[1] - end_coordinate[1]) < 10:
+            # #         print(tup)
+            # while (not end_found) and len(queue) > 0:
+            #     curr = queue.pop(0)
+            #     visited.add(curr)
+            #     for adj in self.map_graph[curr]:
+            #         if adj == end_coordinate:
+            #             end_found = True
+            #             parents[adj] = curr
+            #             break
+            #         if adj not in visited:
+            #             queue.append(adj)
+            #             visited.add(adj)
+            #             parents[adj] = curr
+            
+            # # Extract path
+            # path = [end_coordinate]
+            # curr = end_coordinate
+            # while curr != start_coordinate:
+            #     curr = parents[curr]
+            #     path.append(curr)
+            # path.reverse()
+            # ~~~~~~~~~~~~~~~~~~~ END BFS CODE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
             # Convert to real-world frame
             real_path = [self.pixel_to_real(px, self.map_msg) for px in path]
